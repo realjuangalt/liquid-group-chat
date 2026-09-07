@@ -282,9 +282,18 @@ h1 {
   font-size: clamp(1.3rem, 0.5vw + 1.2rem, 1.7rem);
   font-weight: 600;
   letter-spacing: -0.03em;
-  color: var(--federation);
+  color: var(--holder);
+}
+.pay.return .amt { color: var(--holder); }
+.pay .amt-usd {
+  color: #e0a84a;
+  font-weight: 500;
 }
 .pay .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pay .meta-row {
+  justify-content: center;
+  margin-top: 8px;
+}
 
 .lock {
   font-size: 14px;

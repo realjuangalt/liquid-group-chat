@@ -637,17 +637,34 @@
         <div class="pay">
           <div class="amt">${satToBtc(out)} BTC</div>
           <div class="sub">left the peg. group chat just got interesting.</div>
-          <div class="meta-row">${txLink} · ${blockLink}</div>
+          <div class="meta-row">
+            <span>${clock} UTC</span>
+            ${ticks(confirmed)}
+            <span>${blockLink}</span>
+            ${txLink}
+          </div>
         </div>
       </li>`;
     }
 
     if (isFunds && item.party === "holder") {
+      const usdBit = usd(item.fed);
+      const usdHtml = usdBit
+        ? usdBit.replace(
+            /·\s*(\$[\d,]+)/,
+            '· <span class="amt-usd">$1</span>'
+          )
+        : "";
       return `${dayChip}<li class="sys">
-        <div class="pay">
+        <div class="pay return">
           <div class="amt">${satToBtc(item.fed)} BTC</div>
-          <div class="sub">whitehats tapped you back${usd(item.fed)} · kept the rest as a souvenir</div>
-          <div class="meta-row">${txLink} · ${blockLink}</div>
+          <div class="sub">whitehats tapped you back${usdHtml} · kept the rest as a souvenir</div>
+          <div class="meta-row">
+            <span>${clock} UTC</span>
+            ${ticks(confirmed)}
+            <span>${blockLink}</span>
+            ${txLink}
+          </div>
         </div>
       </li>`;
     }
