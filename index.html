@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Liquid group chat (on-chain)</title>
+  <meta name="description" content="The Liquid drain, as a group chat. Only OP_RETURN messages with an on-chain signature. Updates from mempool.space.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%2311141c'/><text x='32' y='42' text-anchor='middle' font-size='34'>💧</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip" href="#thread">Skip to the chat</a>
+
+  <p class="kicker">iMessage, except every text is a Bitcoin transaction</p>
+  <h1>the liquid group chat</h1>
+  <p class="lede">
+    Two people, one public bulletin board, ~$320m of awkwardness.
+    Only messages signed by the coins or by Blockstream’s PGP key make it in.
+    Randoms DMing the famous address with memecoins get left on read. Forever. On chain.
+  </p>
+
+  <section class="stats" id="stats" aria-label="Fund status">
+    <article>
+      <h2>venmo’d back</h2>
+      <p class="figure" id="stat-returned">3,400 BTC</p>
+      <p class="hint" id="stat-returned-note">the “most” in “we’ll send most back”</p>
+    </article>
+    <article>
+      <h2>still on read</h2>
+      <p class="figure" id="stat-held">—</p>
+      <p class="hint" id="stat-held-note">the other 15%, hanging out</p>
+    </article>
+    <article>
+      <h2>last ping</h2>
+      <p class="figure figure-sm" id="stat-last">—</p>
+      <p class="hint" id="stat-last-note">block height of the latest text</p>
+    </article>
+    <article>
+      <h2>bitcoin tip</h2>
+      <p class="figure figure-sm" id="stat-tip">—</p>
+      <p class="hint" id="stat-tip-note">the world’s slowest typing indicator</p>
+    </article>
+  </section>
+
+  <div class="phone" id="transcript">
+    <header class="chat-bar">
+      <div class="avatars" aria-hidden="true">
+        <span class="av holder">🎩</span>
+        <span class="av blockstream">💧</span>
+      </div>
+      <div class="chat-titles">
+        <strong>whitehats + blockstream</strong>
+        <span id="live-meta"><span class="pulse" id="live-dot" data-state="idle"></span> <span id="live-label">dialing mempool.space…</span></span>
+      </div>
+    </header>
+    <p class="e2ee">
+      🔒 This conversation is end-to-end encrypted.
+      Also it is copied to every full node on Earth.
+      It’s a whole thing.
+    </p>
+    <ol class="thread" id="thread"></ol>
+    <p class="empty" id="thread-empty" hidden>nobody cool has posted yet. check the little green dot.</p>
+    <form class="composer" onsubmit="return false">
+      <input disabled placeholder="OP_RETURN (keep it under 80 bytes, weirdo)">
+      <button type="button" disabled title="this is a viewer, not a wallet">broadcast</button>
+    </form>
+  </div>
+
+  <section class="identities" aria-label="Who can post">
+    <h2>who’s even in this chat</h2>
+    <ul>
+      <li>
+        <span class="who holder">🎩 whitehats</span>
+        <a href="https://mempool.space/address/bc1ql4mfu6aundtkksxklfajs2h3t9nzcd6gyqjlte">bc1ql4mfu…qjlte</a>
+        <p>Has the coins, therefore has the mic. Spending from this address is the signature. Right-side bubbles.</p>
+      </li>
+      <li>
+        <span class="who blockstream">💧 blockstream</span>
+        <a href="https://mempool.space/address/bc1qn8mgsmxx42j3fflqfkh0cqhdd6mj4h9q2mfqym">bc1qn8mgs…mfqym</a>
+        <p>First contact address. After that they hop to new change UTXOs; this page follows those addresses and only keeps the text if it verifies against
+          <a href="https://blockstream.com/pgp.txt">blockstream.com/pgp.txt</a>
+          (<code>1176 542D … 6844 A2D6</code>). Left-side bubbles.
+        </p>
+      </li>
+      <li>
+        <span class="who federation">🏦 the peg</span>
+        <a href="https://mempool.space/address/bc1qdlld6antmv4xug242ed83q7k4rqw50cwfns38szx4qu2f4jwaxxsuhwxxr">bc1qdlld6…uhwxxr</a>
+        <p>Doesn’t text. Just receives extremely large Venmos and 1,000-sat “ok?” pokes.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section id="verify">
+    <h2>the bouncer</h2>
+    <div class="prose">
+      <p>
+        Anyone can throw dust and an OP_RETURN at a famous address. That is not a text, that is graffiti.
+        A bubble appears only if:
+      </p>
+      <ol>
+        <li>it spends the <strong>holder’s</strong> coins, or</li>
+        <li>it spends Blockstream’s original contact UTXO, or</li>
+        <li>the payload PGP-verifies in this browser against Blockstream’s published key.</li>
+      </ol>
+      <p>
+        Encrypted bubbles are real mail. Holder → Blockstream is PGP. Blockstream → holder is Electrum BIE1.
+        This page shows the envelope, not the letter. There is no “view once.” There is only “view forever, still can’t read it.”
+      </p>
+    </div>
+  </section>
+
+  <section id="flows">
+    <h2>the huge venmos</h2>
+    <p class="section-sub">As logged by the chain and by <a href="https://x.com/intangiblecoins/status/2096996503298486649">Alex Thorn</a>.</p>
+    <ol class="flow" id="flow-list"></ol>
+  </section>
+
+  <section id="sources">
+    <h2>sources, not vibes</h2>
+    <ul class="sources">
+      <li>
+        <a href="https://gist.github.com/Sjors/9d24363e67529079cc2ae4305ff90fcd">Sjors’ gist</a>
+        — first adult in the room (mempool.space + GnuPG).
+      </li>
+      <li>
+        <a href="https://x.com/intangiblecoins/status/2096996503298486649">Alex Thorn, 7 Sep 2026</a>
+        —
+        <a href="https://x.com/intangiblecoins/status/2096996527822553307">dialog</a>,
+        <a href="https://x.com/intangiblecoins/status/2097002798160269437">flows</a>,
+        <a href="https://x.com/intangiblecoins/status/2097019911197303024">still texting after the 3,400 BTC</a>.
+      </li>
+      <li>
+        <a href="https://mempool.space/tx/a6d697a25266ce3c78774fd1d75f896b7af522ada209b0f6228ea497bc49a46d">the 3,400 BTC tap</a>
+        · <a href="https://blockstream.com/pgp.txt">PGP key</a>
+        · <a href="https://www.stacker.news/items/1564196">Mononaut on the bug</a>
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>
+      Not affiliated with Blockstream, Liquid, Galaxy, or whoever is behind that hat emoji.
+      No server. Your browser is the group chat.
+    </p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/openpgp@5.11.3/dist/openpgp.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
