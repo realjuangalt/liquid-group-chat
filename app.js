@@ -36,6 +36,13 @@
     "b3830692852d85cfc0e664cd57f1cd0230686be6f9aef41c49c613e91fe9da6a",
   ];
 
+  // Live / sticky txids that may sit in mempool for a long time (e.g. whitehats ":(").
+  // Always re-fetch these so a partial websocket payload cannot erase them from the chat.
+  const PINNED_TXIDS = [
+    "d7e8837c51cc625c2c6365d371d376b035209fa01434d4933971d6428d6d6d52",
+  ];
+  const STICKY_KEY = "liquid-group-chat-sticky-v1";
+
   const state = {
     api: APIS[0],
     key: null,
@@ -759,10 +766,56 @@
       .join("");
   }
 
+  function vinScore(tx) {
+    let n = 0;
+    for (const vin of tx.vin || []) {
+      if (vin && vin.prevout && vin.prevout.scriptpubkey_address) n += 1;
+    }
+    return n;
+  }
+
+  function mergeTx(prev, next) {
+    if (!prev) return next;
+    if (!next) return prev;
+    const preferNextStructure =
+      (next.vout && next.vout.length) >= (prev.vout && prev.vout.length ? prev.vout.length : 0) &&
+      vinScore(next) >= vinScore(prev);
+    const vin = preferNextStructure && next.vin && next.vin.length ? next.vin : prev.vin;
+    const vout = preferNextStructure && next.vout && next.vout.length ? next.vout : prev.vout;
+    const prevConf = prev.status && prev.status.confirmed;
+    const nextConf = next.status && next.status.confirmed;
+    const status = nextConf || !prevConf ? next.status || prev.status : prev.status;
+    return { ...prev, ...next, vin, vout, status };
+  }
+
+  function loadSticky() {
+    try {
+      const raw = sessionStorage.getItem(STICKY_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((t) => t && t.txid) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveSticky(items) {
+    try {
+      const sticky = items
+        .filter((i) => i.role === "message" && !(i.tx.status && i.tx.status.confirmed))
+        .map((i) => i.tx)
+        .slice(-24);
+      sessionStorage.setItem(STICKY_KEY, JSON.stringify(sticky));
+    } catch {
+      /* private mode */
+    }
+  }
+
   async function ingestAndRender(txList, { skipBlockPositions = false } = {}) {
     const merged = new Map(state.txs);
     for (const tx of txList) {
-      if (tx && tx.txid) merged.set(tx.txid, tx);
+      if (!tx || !tx.txid) continue;
+      merged.set(tx.txid, mergeTx(merged.get(tx.txid), tx));
     }
     state.txs = merged;
     const items = [];
@@ -782,10 +835,24 @@
       (i) => i.role === "message" || (i.role === "funds" && i.party === "holder") || i.party === "federation"
     ).length;
     render(items);
+    saveSticky(items);
     state.lastRefresh = Date.now();
     setLive("live", funnyLive("live", state.itemCount));
     if (watchesGrew) sendWatches(state.ws);
     return items;
+  }
+
+  async function fetchPinned() {
+    const ids = [
+      ...PINNED_TXIDS,
+      ...[...state.txs.values()]
+        .filter((tx) => !(tx.status && tx.status.confirmed))
+        .map((tx) => tx.txid),
+    ];
+    const uniq = [...new Set(ids)].slice(0, 12);
+    if (!uniq.length) return [];
+    const fresh = await mapPool(uniq, 3, (id) => getJson(`/tx/${id}`).catch(() => null));
+    return fresh.filter(Boolean);
   }
 
   async function refresh({ full = false, silent = false } = {}) {
@@ -801,12 +868,18 @@
       if (tip) state.tip = tip;
       if (holderInfo) state.holderInfo = holderInfo;
 
+      const holderMem = await fetchMempoolTxs(HOLDER);
+      const contactMem = await fetchMempoolTxs(CONTACT);
+      const pinned = await fetchPinned();
+
       if (full && !state.snapshotTxids.size) {
         const [firstHolder, firstContact] = await Promise.all([
           fetchRecentTxs(HOLDER),
           fetchRecentTxs(CONTACT),
         ]);
-        await ingestAndRender(firstHolder.concat(firstContact));
+        await ingestAndRender(
+          firstHolder.concat(firstContact, holderMem, contactMem, pinned)
+        );
 
         const missing = BOOTSTRAP_TXIDS.filter((id) => !state.txs.has(id));
         for (const id of missing) {
@@ -828,22 +901,13 @@
         const mem = extras.length
           ? await mapPool(extras, 3, (addr) => fetchMempoolTxs(addr))
           : [];
-        await ingestAndRender(pages.flat().concat(mem.flat()));
+        await ingestAndRender(pages.flat().concat(mem.flat(), holderMem, contactMem, pinned));
       } else {
         const addrs = watchedForPoll();
         const pages = await mapPool(addrs, 3, (addr) =>
           addr === HOLDER || addr === CONTACT ? fetchRecentTxs(addr) : fetchMempoolTxs(addr)
         );
-        const incoming = pages.flat();
-        const unconfirmed = [...state.txs.values()]
-          .filter((tx) => !(tx.status && tx.status.confirmed))
-          .map((tx) => tx.txid)
-          .slice(0, 8);
-        if (unconfirmed.length) {
-          const fresh = await mapPool(unconfirmed, 3, (id) => getJson(`/tx/${id}`).catch(() => null));
-          incoming.push(...fresh.filter(Boolean));
-        }
-        await ingestAndRender(incoming);
+        await ingestAndRender(pages.flat().concat(holderMem, contactMem, pinned));
       }
     } catch (err) {
       setLive("error", funnyLive("error") + " " + (err.message || err));
@@ -899,6 +963,8 @@
       console.warn(err);
     }
     const baked = await loadSnapshot();
+    const sticky = loadSticky();
+    if (sticky.length) await ingestAndRender(sticky, { skipBlockPositions: true });
     if (baked) setLive("live", funnyLive("live", state.itemCount));
     pickApi().catch(() => {});
     connectWs();
