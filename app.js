@@ -34,6 +34,7 @@
     "fcd06c1bcb38e4c3eaf71c1137d7bdf935363ae3c14b590d5d1a501e326d2b99",
     "36a07a98f576edde8101f7bc0b1241e03501a1c2533c7d5f40291f1ddd7cf84b",
     "b3830692852d85cfc0e664cd57f1cd0230686be6f9aef41c49c613e91fe9da6a",
+    "d7e8837c51cc625c2c6365d371d376b035209fa01434d4933971d6428d6d6d52",
   ];
 
   // Live / sticky txids that may sit in mempool for a long time (e.g. whitehats ":(").
