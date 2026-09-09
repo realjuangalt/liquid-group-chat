@@ -10,6 +10,8 @@ Unrelated dust, memecoins, and impersonation OP_RETURNs sent *to* the holder are
 
 Live site: https://realjuangalt.github.io/liquid-group-chat/
 
+By [Juan Galt](https://juangalt.com). Source: [github.com/realjuangalt/liquid-group-chat](https://github.com/realjuangalt/liquid-group-chat).
+
 ## Snapshot-first (no history crawl)
 
 `snapshot.json` is a baked copy of the known conversation (20 txs as of 2026-09-07). First paint loads that file plus local `pgp.txt`. Explorers are only asked for **newer** transactions:
