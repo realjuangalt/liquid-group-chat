@@ -10,8 +10,12 @@ back to mempool.space. Retries on 429. No API keys.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import ssl
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -20,12 +24,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "snapshot.json"
+PGP_PUBKEY = ROOT / "pgp.txt"
 
 HOLDER = "bc1ql4mfu6aundtkksxklfajs2h3t9nzcd6gyqjlte"
 CONTACT = "bc1qn8mgsmxx42j3fflqfkh0cqhdd6mj4h9q2mfqym"
 FEDERATION = "bc1qdlld6antmv4xug242ed83q7k4rqw50cwfns38szx4qu2f4jwaxxsuhwxxr"
 MIN_HEIGHT = 965783
 LARGE_SATS = 100_000_000
+# Blockstream Security Reporting <security@blockstream.com>
+BLOCKSTREAM_KEY_ID = "4AC8CC886844A2D6"
 APIS = [
     "https://blockstream.info/api",
     "https://mempool.space/api",
@@ -54,6 +61,12 @@ FORCE_TXIDS = [
     "36a07a98f576edde8101f7bc0b1241e03501a1c2533c7d5f40291f1ddd7cf84b",
     "b3830692852d85cfc0e664cd57f1cd0230686be6f9aef41c49c613e91fe9da6a",
     "d7e8837c51cc625c2c6365d371d376b035209fa01434d4933971d6428d6d6d52",
+    # Blockstream clearsigns from fresh addresses (live page keeps via PGP; address
+    # watch alone misses them once a newer known holder tx stops pagination).
+    "9a041c868fc4029601e4b248f21cc786e43405e4ca7d6bdb2c339aeb0f576a9b",
+    "57bd5c9be33276f6a80dc723a9ef064b09b29972b82c9684da051d110f6ef0f6",
+    "a388ab824afd20d4fa91d016acaaa2db1d20bf40f0e6c9f87a97a0adc0554d12",
+    "f4473e85f0b63751c569622d1673d9e9219443992617053fe79a99dbc79391ea",
 ]
 
 CTX = ssl.create_default_context()
@@ -163,6 +176,86 @@ def has_op_return(tx: dict) -> bool:
     return False
 
 
+def op_return_texts(tx: dict) -> list[str]:
+    out: list[str] = []
+    for vout in tx.get("vout") or []:
+        if vout.get("scriptpubkey_type") != "op_return":
+            continue
+        hx = vout.get("scriptpubkey") or ""
+        try:
+            raw = bytes.fromhex(hx)
+        except ValueError:
+            continue
+        if not raw or raw[0] != 0x6A:
+            continue
+        i = 1
+        if i >= len(raw):
+            continue
+        if raw[i] == 0x4C and i + 1 < len(raw):
+            n = raw[i + 1]
+            data = raw[i + 2 : i + 2 + n]
+        elif raw[i] == 0x4D and i + 2 < len(raw):
+            n = int.from_bytes(raw[i + 1 : i + 3], "little")
+            data = raw[i + 3 : i + 3 + n]
+        else:
+            n = raw[i]
+            data = raw[i + 1 : i + 1 + n]
+        out.append(data.decode("utf-8", errors="replace"))
+    return out
+
+
+_gpg_home: str | None = None
+_gpg_ready = False
+
+
+def _ensure_gpg() -> bool:
+    global _gpg_home, _gpg_ready
+    if _gpg_ready:
+        return True
+    if not PGP_PUBKEY.is_file() or shutil.which("gpg") is None:
+        return False
+    _gpg_home = tempfile.mkdtemp(prefix="liquid-chat-gpg-")
+    env = os.environ.copy()
+    env["GNUPGHOME"] = _gpg_home
+    try:
+        subprocess.run(
+            ["gpg", "--batch", "--import", str(PGP_PUBKEY)],
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        _gpg_ready = True
+        return True
+    except Exception as err:
+        print(f"gpg import failed: {err}", file=sys.stderr)
+        return False
+
+
+def is_blockstream_clearsign(tx: dict) -> bool:
+    """True when an OP_RETURN clearsign verifies with Blockstream's published key."""
+    texts = op_return_texts(tx)
+    if not any("BEGIN PGP SIGNED MESSAGE" in t for t in texts):
+        return False
+    if not _ensure_gpg() or not _gpg_home:
+        return False
+    env = os.environ.copy()
+    env["GNUPGHOME"] = _gpg_home
+    blob = "\n".join(texts)
+    msg_path = Path(_gpg_home) / "candidate.asc"
+    try:
+        msg_path.write_text(blob, encoding="utf-8")
+        proc = subprocess.run(
+            ["gpg", "--batch", "--status-fd", "1", "--verify", str(msg_path)],
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        status = (proc.stdout or b"").decode("utf-8", errors="replace")
+        return "GOODSIG" in status and BLOCKSTREAM_KEY_ID in status
+    except Exception:
+        return False
+
+
 def paid_to(tx: dict, address: str) -> int:
     return sum(
         int(v.get("value") or 0)
@@ -198,6 +291,9 @@ def harvest_addrs(txs: list[dict]) -> list[str]:
 def keep(tx: dict, watched: set[str]) -> bool:
     froms = senders(tx)
     if has_op_return(tx) and (HOLDER in froms or froms & watched):
+        return True
+    # Live page attributes valid Blockstream clearsigns even from fresh addresses.
+    if has_op_return(tx) and is_blockstream_clearsign(tx):
         return True
     if HOLDER in froms and paid_to(tx, FEDERATION) >= LARGE_SATS:
         return True
