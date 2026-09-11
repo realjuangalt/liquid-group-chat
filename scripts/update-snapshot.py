@@ -67,6 +67,11 @@ FORCE_TXIDS = [
     "57bd5c9be33276f6a80dc723a9ef064b09b29972b82c9684da051d110f6ef0f6",
     "a388ab824afd20d4fa91d016acaaa2db1d20bf40f0e6c9f87a97a0adc0554d12",
     "f4473e85f0b63751c569622d1673d9e9219443992617053fe79a99dbc79391ea",
+    "af97cc9495b04314afa1a0d0d633db8200a6772832be1c84a6f345e58959bfc1",
+    "f603da4a2f99391e9a89f60292c2d9c23783cdc8c3462f2ec3127805b62c9a42",
+    "1d690f3b96b878067f3a445b74dfb8fab4201c0455d88ac98cc14a927e7858d7",
+    "7c0fb4ffff35bf9894211d3c97abbb58fc127573a1805880103dd19e40528523",
+    "f7055f6c8dd00f404e48c12483ae740180f658db206733505bb27b015e579588",
 ]
 
 CTX = ssl.create_default_context()
@@ -290,6 +295,9 @@ def harvest_addrs(txs: list[dict]) -> list[str]:
 
 def keep(tx: dict, watched: set[str]) -> bool:
     froms = senders(tx)
+    # Contact-address OP_RETURNs are always conversation (Blockstream first mic).
+    if has_op_return(tx) and CONTACT in froms:
+        return True
     if has_op_return(tx) and (HOLDER in froms or froms & watched):
         return True
     # Live page attributes valid Blockstream clearsigns even from fresh addresses.
@@ -355,10 +363,26 @@ def main() -> None:
     except Exception as err:
         print(f"skip holder mempool: {err}", file=sys.stderr)
 
+    try:
+        mem = get_json(f"/address/{CONTACT}/txs/mempool") or []
+        for tx in mem:
+            if keep(tx, watched):
+                txs[tx["txid"]] = slim_tx(tx)
+    except Exception as err:
+        print(f"skip contact mempool: {err}", file=sys.stderr)
+
     ordered = sorted(txs.values(), key=sort_key)
+    last_h = 0
+    for tx in ordered:
+        h = (tx.get("status") or {}).get("block_height") or 0
+        if h > last_h:
+            last_h = h
     out = {
         "asOf": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "note": 'Baked conversation through whitehats ":(". The page only asks explorers for txs newer than these.',
+        "note": (
+            f"Baked conversation through block {last_h} ({len(ordered)} txs). "
+            "The page only asks explorers for txs newer than these."
+        ),
         "txs": ordered,
     }
     SNAPSHOT.write_text(json.dumps(out, separators=(",", ":")))

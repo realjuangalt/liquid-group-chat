@@ -14,7 +14,7 @@ By [Juan Galt](https://juangalt.com). Source: [github.com/realjuangalt/liquid-gr
 
 ## Snapshot-first (no history crawl)
 
-`snapshot.json` is a baked copy of the known conversation. First paint loads that file plus local `pgp.txt`. Explorers are only asked for **newer** transactions:
+`snapshot.json` is a baked copy of the known conversation (31 txs as of 2026-09-11). First paint loads that file plus local `pgp.txt` / `openpgp.min.js`. Explorers are only asked for **newer** transactions:
 
 - paginate address history until a known snapshot txid
 - mempool REST + `wss://mempool.space/api/v1/ws`
@@ -33,7 +33,7 @@ Then commit the updated `snapshot.json`.
 
 Static files only. No build, no server, no API keys.
 
-Ship at repo root: `index.html`, `styles.css`, `app.js`, `snapshot.json`, `pgp.txt`, `.nojekyll`.
+Ship at repo root: `index.html`, `styles.css`, `app.js`, `snapshot.json`, `pgp.txt`, `openpgp.min.js`, `.nojekyll`.
 
 Repo **Settings → Pages → Build and deployment**:
 

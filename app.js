@@ -35,6 +35,16 @@
     "36a07a98f576edde8101f7bc0b1241e03501a1c2533c7d5f40291f1ddd7cf84b",
     "b3830692852d85cfc0e664cd57f1cd0230686be6f9aef41c49c613e91fe9da6a",
     "d7e8837c51cc625c2c6365d371d376b035209fa01434d4933971d6428d6d6d52",
+    "af97cc9495b04314afa1a0d0d633db8200a6772832be1c84a6f345e58959bfc1",
+    "f603da4a2f99391e9a89f60292c2d9c23783cdc8c3462f2ec3127805b62c9a42",
+    "1d690f3b96b878067f3a445b74dfb8fab4201c0455d88ac98cc14a927e7858d7",
+    "7c0fb4ffff35bf9894211d3c97abbb58fc127573a1805880103dd19e40528523",
+    "f7055f6c8dd00f404e48c12483ae740180f658db206733505bb27b015e579588",
+    "9a041c868fc4029601e4b248f21cc786e43405e4ca7d6bdb2c339aeb0f576a9b",
+    "57bd5c9be33276f6a80dc723a9ef064b09b29972b82c9684da051d110f6ef0f6",
+    "a388ab824afd20d4fa91d016acaaa2db1d20bf40f0e6c9f87a97a0adc0554d12",
+    "f4473e85f0b63751c569622d1673d9e9219443992617053fe79a99dbc79391ea",
+    "d08d480e497572d97e58a93d932e26e4a282ed2116317f4939c4376f1f22730f"
   ];
 
   // Live / sticky txids that may sit in mempool for a long time (e.g. whitehats ":(").
@@ -328,8 +338,11 @@
       for (const tx of page) {
         if (!tx || !tx.txid || seen.has(tx.txid)) continue;
         seen.add(tx.txid);
+        // Always keep snapshot txs in the merge set so confirmation can flip
+        // (e.g. baked ":(" while unconfirmed). Still stop paginating deeper.
         if (untilKnown && state.snapshotTxids.has(tx.txid)) {
           hitKnown = true;
+          all.push(tx);
           continue;
         }
         all.push(tx);
@@ -445,23 +458,35 @@
   }
 
   async function loadSnapshot() {
-    try {
-      const res = await fetch("./snapshot.json", {
-        cache: "no-store",
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) throw new Error("snapshot " + res.status);
-      const data = await res.json();
-      const txs = Array.isArray(data.txs) ? data.txs : [];
-      state.snapshotTxids = new Set(txs.map((t) => t && t.txid).filter(Boolean));
-      state.snapshotAsOf = data.asOf || "";
-      await ingestAndRender(txs, { skipBlockPositions: true });
-      return txs.length > 0;
-    } catch (err) {
-      console.warn("snapshot failed", err);
-      state.snapshotTxids = new Set();
-      return false;
+    // Prefer a cached copy on weak links so the baked chat paints even if
+    // explorers / CDN are choking. Fall back to a network revalidation.
+    const attempts = [
+      { cache: "force-cache", ms: 12000 },
+      { cache: "no-cache", ms: 20000 },
+    ];
+    let lastErr = null;
+    for (const attempt of attempts) {
+      try {
+        const res = await fetch("./snapshot.json", {
+          cache: attempt.cache,
+          signal: AbortSignal.timeout(attempt.ms),
+        });
+        if (!res.ok) throw new Error("snapshot " + res.status);
+        const data = await res.json();
+        const txs = Array.isArray(data.txs) ? data.txs : [];
+        if (!txs.length) throw new Error("snapshot empty");
+        state.snapshotTxids = new Set(txs.map((t) => t && t.txid).filter(Boolean));
+        state.snapshotAsOf = data.asOf || "";
+        await ingestAndRender(txs, { skipBlockPositions: true });
+        return txs.length > 0;
+      } catch (err) {
+        lastErr = err;
+        console.warn("snapshot attempt failed", attempt.cache, err);
+      }
     }
+    console.warn("snapshot failed", lastErr);
+    state.snapshotTxids = new Set();
+    return false;
   }
 
   function normalizeArmor(block) {
@@ -869,7 +894,15 @@
     ];
     const uniq = [...new Set(ids)].slice(0, 12);
     if (!uniq.length) return [];
-    const fresh = await mapPool(uniq, 3, (id) => getJson(`/tx/${id}`).catch(() => null));
+    const fresh = await mapPool(uniq, 3, async (id) => {
+      const full = await getJson(`/tx/${id}`).catch(() => null);
+      if (full) return full;
+      // Lighter fallback when full tx fetch fails / is rate-limited.
+      const status = await getJson(`/tx/${id}/status`).catch(() => null);
+      if (!status) return null;
+      const prev = state.txs.get(id);
+      return prev ? { ...prev, status } : null;
+    });
     return fresh.filter(Boolean);
   }
 
@@ -975,15 +1008,25 @@
 
   async function start() {
     setLive("poll", "opening the baked transcript…");
+    // Paint baked messages before depending on explorers / PGP.
+    const baked = await loadSnapshot();
+    if (baked) setLive("live", funnyLive("live", state.itemCount));
     try {
       state.key = await loadKey();
+      // Re-classify so Blockstream hops that need PGP can flip into the thread.
+      if (state.key && state.txs.size) {
+        await ingestAndRender([...state.txs.values()], { skipBlockPositions: true });
+      }
     } catch (err) {
       console.warn(err);
     }
-    const baked = await loadSnapshot();
-    const sticky = loadSticky();
+    const sticky = loadSticky().filter((tx) => {
+      const have = state.txs.get(tx.txid);
+      return !(have && have.status && have.status.confirmed);
+    });
     if (sticky.length) await ingestAndRender(sticky, { skipBlockPositions: true });
-    if (baked) setLive("live", funnyLive("live", state.itemCount));
+    if (state.itemCount) setLive("live", funnyLive("live", state.itemCount));
+    else setLive("error", "baked transcript missing — check snapshot.json");
     pickApi().catch(() => {});
     connectWs();
     await enqueue(() => refresh({ full: true, silent: baked }));
